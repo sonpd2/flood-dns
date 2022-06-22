@@ -41,6 +41,21 @@ char *randomString(int len) {
   return str;
 }
 
+char *randomFixIP() {
+  char prefix[100] = {'2','7','.','6','4','.'};
+  
+  char *string_table[] = {"1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31","32","33","34","35","36","37","38","39","40","41","42","43","44","45","46","47","48","49","50","51","52","53","54","55","56","57","58","59","60","61","62","63","64","65","66","67","68","69","70","71","72","73","74","75","76","77","78","79","80","81","82","83","84","85","86","87","88","89","90","91","92","93","94","95","96","97","98","99","100","101","102","103","104","105","106","107","108","109","110","111","112","113","114","115","116","117","118","119","120","121","122","123","124","125","126","127","128","129","130","131","132","133","134","135","136","137","138","139","140","141","142","143","144","145","146","147","148","149","150","151","152","153","154","155","156","157","158","159","160","161","162","163","164","165","166","167","168","169","170","171","172","173","174","175","176","177","178","179","180","181","182","183","184","185","186","187","188","189","190","191","192","193","194","195","196","197","198","199","200","201","202","203","204","205","206","207","208","209","210","211","212","213","214","215","216","217","218","219","220","221","222","223","224","225","226","227","228","229","230","231","232","233","234","235","236","237","238","239","240","241","242","243","244","245","246","247","248","249","250","251","252","253","254"};
+  int table_size = 253; // This must match the number of entries above
+  char *block3 = string_table[rand() % table_size];
+  char *block4 = string_table[rand() % table_size];
+  char *ip;
+  strcat(prefix, block3);
+  strcat(prefix, ".");
+  ip = strcat(prefix, block4);
+  //printf("%s\n", ip);
+  return ip;
+}
+
 enum dns_type {
 	TYPE_A = 1,
 	TYPE_NS,		//2
@@ -57,7 +72,7 @@ enum dns_type {
 	TYPE_HINFO,		//13
 	TYPE_MINFO,		//14
 	TYPE_MX,		//15 
-	TYPE_TXT,		//16
+	TYPE_TXT = 16,		//16
 	TYPE_AAAA = 0x1c,
 };
 
@@ -159,10 +174,10 @@ void usage(char *progname)
 			"\t-s, --source-ip\t\tsource ip\n"
 			"\t-p, --dest-port\t\tdestination port\n"
 			"\t-P, --src-port\t\tsource port\n"
-			"\t-i, --interval\t\tinterval (in millisecond) between two packets\n"
-			"\t-n, --number\t\tnumber of DNS requests to send\n"
-			"\t-r, --random\t\tfake random source IP\n"
-                        "\t-d, --randomdomain\t\tauto generate domain name\n"
+			"\t-n, --rate\t\tnumber of DNS requests to send in one second\n"
+			"\t-r, --random-source\t\tfake random source IP\n"
+                        "\t-f, --random-source-fix\t\tfake random source IP in statis list\n"
+                        "\t-d, --random-domain\t\tauto generate domain name\n"
 			"\t-D, --daemon\t\trun as daemon\n"
 			"\t-h, --help\n"
 			"\n"
@@ -242,6 +257,9 @@ int read_ip_from_file(char *filename)
 
 int main(int argc, char **argv)
 {
+        struct timeval t0, t1, t2;
+        double elapsedTime;
+
 	char qname[256] = {0};	/* question name */
 	uint16_t qtype = TYPE_A;
 	struct in_addr src_ip = {0};	/* source address          */
@@ -254,6 +272,7 @@ int main(int argc, char **argv)
 	int sleep_interval = 0;	/* interval (in millisecond) between two packets */
 
 	int random_ip = 0;
+        int random_list_ip = 0;
         int random_domain = 0;
 	int static_ip = 0;
 
@@ -264,14 +283,14 @@ int main(int argc, char **argv)
 	const struct option long_options[] = {
 		{"type", required_argument, NULL, 't'},
 		{"dest-port", required_argument, NULL, 'p'},
-		{"file", required_argument, NULL, 'f'},
 		{"src-port", required_argument, NULL, 'P'},
 		{"daemon", no_argument, NULL, 'D'},
-		{"random", no_argument, NULL, 'r'},
-                {"randomdomain", no_argument, NULL, 'd'},
+		{"random-source", no_argument, NULL, 'r'},
+                {"random-source-fix", no_argument, NULL, 'f'},
+                {"random-domain", no_argument, NULL, 'd'},
 		{"source-ip", required_argument, NULL, 's'},
 		{"interval", required_argument, NULL, 'i'},
-		{"number", required_argument, NULL, 'n'},
+		{"rate", required_argument, NULL, 'n'},
 		{"help", no_argument, NULL, 'h'},
 		{NULL, 0, NULL, 0}
 	};
@@ -313,17 +332,16 @@ int main(int argc, char **argv)
 			random_ip = 1;
 			srandom((unsigned long)time(NULL));
 			break;
+                case 'f':
+                        random_list_ip = 1;
+                        srandom((unsigned long)time(NULL));
+                        break;
                 case 'd':
                         random_domain = 1;
                         break;
 
 		case 'D':
 			//TODO
-			break;
-
-		case 'f':
-			if (read_ip_from_file(optarg)) {
-			}
 			break;
 
 		case 's':
@@ -423,10 +441,16 @@ int main(int argc, char **argv)
         printf("[+] Target port: %d\n", dst_port);
         printf("[+] Number of requests: %d\n", number);
         printf("[+] Random source: %d\n", random_ip);
+	printf("[+] Random source in list: %d\n", random_list_ip);
+        printf("[+] Rate requests/s: %d\n", number);
         printf("[+] Random qname: %d\n", random_domain);
         printf("[+] Target domain: %s\n", qname);
-
+        
+        gettimeofday(&t0, NULL);
 	while (1) {
+           count = 0;
+           gettimeofday(&t1, NULL);
+           while (1) {
 		int dns_datalen;
 		int udp_datalen;
 		int ip_datalen;
@@ -434,8 +458,14 @@ int main(int argc, char **argv)
 		ssize_t ret;
 
 		if (random_ip) {
-			src_ip.s_addr = random();
+                         src_ip.s_addr = random();
 		}
+                
+                if (random_list_ip) {
+                         char *ip;
+                         ip = randomFixIP();
+                         inet_pton(AF_INET, ip, &src_ip);
+                }
 
 		dns_header->id = random();
                 
@@ -474,16 +504,33 @@ int main(int argc, char **argv)
 		}
 
 		count++;
-
+                gettimeofday(&t2, NULL);
+                elapsedTime = (t2.tv_sec - t1.tv_sec) * 1000.0;
+                elapsedTime += (t2.tv_usec - t1.tv_usec) / 1000.0;
+                
 		if (number > 0 && count >= number) {
-			// done
+			double sleepTime;
+                        sleepTime = 1000 - elapsedTime;
+                        printf("[!] Sent %d in %f ms => sleep more %f ms\n", count, elapsedTime, sleepTime);
+                        usleep(sleepTime*1000); 
 			break;
 		}
 
-		if (sleep_interval > 0) {
-			usleep(sleep_interval);
+		if (elapsedTime >= 1000 && number > 0) {
+                        float rate;
+                        rate = count/(elapsedTime/1000);
+			printf("[!] Max real rate is %f requests/s. Not reach your input\n", rate);
+                        break;
 		}
-	}
+                
+                if (elapsedTime >= 1000 && number <= 0) {
+                        float rate;
+                        rate = count/(elapsedTime/1000);
+                        printf("[!] Current rate is %f requests/s\n", rate);
+                        break;
+                }
+	    }
+        }
 
 	printf("sent %d DNS requests.\n", count);
 
